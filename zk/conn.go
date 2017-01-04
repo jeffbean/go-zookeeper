@@ -21,6 +21,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/jeffbean/go-zookeeper/zk/proto"
 )
 
 // ErrNoServer indicates that an operation cannot be completed
@@ -69,7 +71,7 @@ type authCreds struct {
 type Conn struct {
 	lastZxid         int64
 	sessionID        int64
-	state            State // must be 32-bit aligned
+	state            proto.State // must be 32-bit aligned
 	xid              uint32
 	sessionTimeoutMs int32 // session timeout in milliseconds
 	passwd           []byte
@@ -89,8 +91,8 @@ type Conn struct {
 	creds   []authCreds
 	credsMu sync.Mutex // protects server
 
-	sendChan     chan *request
-	requests     map[int32]*request // Xid -> pending request
+	sendChan     chan *connRequest
+	requests     map[int32]*connRequest // Xid -> pending request
 	requestsLock sync.Mutex
 	watchers     map[watchPathType][]chan Event
 	watchersLock sync.Mutex
@@ -107,12 +109,12 @@ type Conn struct {
 // connOption represents a connection option.
 type connOption func(c *Conn)
 
-type request struct {
+type connRequest struct {
 	xid        int32
 	opcode     int32
 	pkt        interface{}
 	recvStruct interface{}
-	recvChan   chan response
+	recvChan   chan connResponse
 
 	// Because sending and receiving happen in separate go routines, there's
 	// a possible race condition when creating watches from outside the read
@@ -121,17 +123,65 @@ type request struct {
 	// In order to not hard code the watch logic for each opcode in the recv
 	// loop the caller can use recvFunc to insert some synchronously code
 	// after a response.
-	recvFunc func(*request, *responseHeader, error)
+	recvFunc func(*connRequest, *proto.ResponseHeader, error)
 }
 
-type response struct {
+type connResponse struct {
 	zxid int64
 	err  error
 }
 
+// ServerStats is the information pulled from the Zookeeper `stat` command.
+type ServerStats struct {
+	Sent        int64
+	Received    int64
+	NodeCount   int64
+	MinLatency  int64
+	AvgLatency  int64
+	MaxLatency  int64
+	Connections int64
+	Outstanding int64
+	Epoch       int32
+	Counter     int32
+	BuildTime   time.Time
+	Mode        proto.Mode
+	Version     string
+	Error       error
+}
+
+// ServerClient is the information for a single Zookeeper client and its session.
+// This is used to parse/extract the output fo the `cons` command.
+type ServerClient struct {
+	Queued        int64
+	Received      int64
+	Sent          int64
+	SessionID     int64
+	Lcxid         int64
+	Lzxid         int64
+	Timeout       int32
+	LastLatency   int32
+	MinLatency    int32
+	AvgLatency    int32
+	MaxLatency    int32
+	Established   time.Time
+	LastResponse  time.Time
+	Addr          string
+	LastOperation string // maybe?
+	Error         error
+}
+
+// ServerClients is a struct for the FLWCons() function. It's used to provide
+// the list of Clients.
+//
+// This is needed because FLWCons() takes multiple servers.
+type ServerClients struct {
+	Clients []*ServerClient
+	Error   error
+}
+
 type Event struct {
-	Type   EventType
-	State  State
+	Type   proto.EventType
+	State  proto.State
 	Path   string // For non-session events, the path of the watched node.
 	Err    error
 	Server string // For connection events
@@ -188,14 +238,14 @@ func Connect(servers []string, sessionTimeout time.Duration, options ...connOpti
 		dialer:         net.DialTimeout,
 		hostProvider:   &DNSHostProvider{},
 		conn:           nil,
-		state:          StateDisconnected,
+		state:          proto.StateDisconnected,
 		eventChan:      ec,
 		shouldQuit:     make(chan struct{}),
 		connectTimeout: 1 * time.Second,
-		sendChan:       make(chan *request, sendChanSize),
-		requests:       make(map[int32]*request),
+		sendChan:       make(chan *connRequest, sendChanSize),
+		requests:       make(map[int32]*connRequest),
 		watchers:       make(map[watchPathType][]chan Event),
-		passwd:         emptyPassword,
+		passwd:         proto.EmptyPassword,
 		logger:         DefaultLogger,
 		buf:            make([]byte, bufferSize),
 
@@ -216,8 +266,8 @@ func Connect(servers []string, sessionTimeout time.Duration, options ...connOpti
 
 	go func() {
 		conn.loop()
-		conn.flushRequests(ErrClosing)
-		conn.invalidateWatches(ErrClosing)
+		conn.flushRequests(proto.ErrClosing)
+		conn.invalidateWatches(proto.ErrClosing)
 		close(conn.eventChan)
 	}()
 	return conn, ec, nil
@@ -253,14 +303,14 @@ func (c *Conn) Close() {
 	close(c.shouldQuit)
 
 	select {
-	case <-c.queueRequest(opClose, &closeRequest{}, &closeResponse{}, nil):
+	case <-c.queueRequest(proto.OpClose, &proto.CloseRequest{}, &proto.CloseResponse{}, nil):
 	case <-time.After(time.Second):
 	}
 }
 
 // State returns the current state of the connection.
-func (c *Conn) State() State {
-	return State(atomic.LoadInt32((*int32)(&c.state)))
+func (c *Conn) State() proto.State {
+	return proto.State(atomic.LoadInt32((*int32)(&c.state)))
 }
 
 // SessionID returns the current session id of the connection.
@@ -281,9 +331,9 @@ func (c *Conn) setTimeouts(sessionTimeoutMs int32) {
 	c.pingInterval = c.recvTimeout / 2
 }
 
-func (c *Conn) setState(state State) {
+func (c *Conn) setState(state proto.State) {
 	atomic.StoreInt32((*int32)(&c.state), int32(state))
-	c.sendEvent(Event{Type: EventSession, State: state, Server: c.Server()})
+	c.sendEvent(Event{Type: proto.EventSession, State: state, Server: c.Server()})
 }
 
 func (c *Conn) sendEvent(evt Event) {
@@ -304,23 +354,23 @@ func (c *Conn) connect() error {
 		c.serverMu.Lock()
 		c.server, retryStart = c.hostProvider.Next()
 		c.serverMu.Unlock()
-		c.setState(StateConnecting)
+		c.setState(proto.StateConnecting)
 		if retryStart {
 			c.flushUnsentRequests(ErrNoServer)
 			select {
 			case <-time.After(time.Second):
 				// pass
 			case <-c.shouldQuit:
-				c.setState(StateDisconnected)
-				c.flushUnsentRequests(ErrClosing)
-				return ErrClosing
+				c.setState(proto.StateDisconnected)
+				c.flushUnsentRequests(proto.ErrClosing)
+				return proto.ErrClosing
 			}
 		}
 
 		zkConn, err := c.dialer("tcp", c.Server(), c.connectTimeout)
 		if err == nil {
 			c.conn = zkConn
-			c.setState(StateConnected)
+			c.setState(proto.StateConnected)
 			c.logger.Printf("Connected to %s", c.Server())
 			return nil
 		}
@@ -340,12 +390,12 @@ func (c *Conn) resendZkAuth(reauthReadyChan chan struct{}) {
 
 	for _, cred := range c.creds {
 		resChan, err := c.sendRequest(
-			opSetAuth,
-			&setAuthRequest{Type: 0,
+			proto.OpSetAuth,
+			&proto.SetAuthRequest{Type: 0,
 				Scheme: cred.scheme,
 				Auth:   cred.auth,
 			},
-			&setAuthResponse{},
+			&proto.SetAuthResponse{},
 			nil)
 
 		if err != nil {
@@ -367,17 +417,17 @@ func (c *Conn) sendRequest(
 	opcode int32,
 	req interface{},
 	res interface{},
-	recvFunc func(*request, *responseHeader, error),
+	recvFunc func(*connRequest, *proto.ResponseHeader, error),
 ) (
-	<-chan response,
+	<-chan connResponse,
 	error,
 ) {
-	rq := &request{
+	rq := &connRequest{
 		xid:        c.nextXid(),
 		opcode:     opcode,
 		pkt:        req,
 		recvStruct: res,
-		recvChan:   make(chan response, 1),
+		recvChan:   make(chan connResponse, 1),
 		recvFunc:   recvFunc,
 	}
 
@@ -397,7 +447,7 @@ func (c *Conn) loop() {
 
 		err := c.authenticate()
 		switch {
-		case err == ErrSessionExpired:
+		case err == proto.ErrSessionExpired:
 			c.logger.Printf("Authentication failed: %s", err)
 			c.invalidateWatches(err)
 		case err != nil && c.conn != nil:
@@ -436,17 +486,17 @@ func (c *Conn) loop() {
 			wg.Wait()
 		}
 
-		c.setState(StateDisconnected)
+		c.setState(proto.StateDisconnected)
 
 		select {
 		case <-c.shouldQuit:
-			c.flushRequests(ErrClosing)
+			c.flushRequests(proto.ErrClosing)
 			return
 		default:
 		}
 
-		if err != ErrSessionExpired {
-			err = ErrConnectionClosed
+		if err != proto.ErrSessionExpired {
+			err = proto.ErrConnectionClosed
 		}
 		c.flushRequests(err)
 
@@ -466,7 +516,7 @@ func (c *Conn) flushUnsentRequests(err error) {
 		default:
 			return
 		case req := <-c.sendChan:
-			req.recvChan <- response{-1, err}
+			req.recvChan <- connResponse{-1, err}
 		}
 	}
 }
@@ -475,9 +525,9 @@ func (c *Conn) flushUnsentRequests(err error) {
 func (c *Conn) flushRequests(err error) {
 	c.requestsLock.Lock()
 	for _, req := range c.requests {
-		req.recvChan <- response{-1, err}
+		req.recvChan <- connResponse{-1, err}
 	}
-	c.requests = make(map[int32]*request)
+	c.requests = make(map[int32]*connRequest)
 	c.requestsLock.Unlock()
 }
 
@@ -488,7 +538,7 @@ func (c *Conn) invalidateWatches(err error) {
 
 	if len(c.watchers) >= 0 {
 		for pathType, watchers := range c.watchers {
-			ev := Event{Type: EventNotWatching, State: StateDisconnected, Path: pathType.path, Err: err}
+			ev := Event{Type: proto.EventNotWatching, State: proto.StateDisconnected, Path: pathType.path, Err: err}
 			for _, ch := range watchers {
 				ch <- ev
 				close(ch)
@@ -506,7 +556,7 @@ func (c *Conn) sendSetWatches() {
 		return
 	}
 
-	req := &setWatchesRequest{
+	req := &proto.SetWatchesRequest{
 		RelativeZxid: c.lastZxid,
 		DataWatches:  make([]string, 0),
 		ExistWatches: make([]string, 0),
@@ -532,8 +582,8 @@ func (c *Conn) sendSetWatches() {
 	}
 
 	go func() {
-		res := &setWatchesResponse{}
-		_, err := c.request(opSetWatches, req, res, nil)
+		res := &proto.SetWatchesResponse{}
+		_, err := c.request(proto.OpSetWatches, req, res, nil)
 		if err != nil {
 			c.logger.Printf("Failed to set previous watches: %s", err.Error())
 		}
@@ -544,7 +594,7 @@ func (c *Conn) authenticate() error {
 	buf := make([]byte, 256)
 
 	// Encode and send a connect request.
-	n, err := encodePacket(buf[4:], &connectRequest{
+	n, err := proto.EncodePacket(buf[4:], &proto.ConnectRequest{
 		ProtocolVersion: protocolVersion,
 		LastZxidSeen:    c.lastZxid,
 		TimeOut:         c.sessionTimeoutMs,
@@ -582,8 +632,8 @@ func (c *Conn) authenticate() error {
 		return err
 	}
 
-	r := connectResponse{}
-	_, err = decodePacket(buf[:blen], &r)
+	r := proto.ConnectResponse{}
+	_, err = proto.DecodePacket(buf[:blen], &r)
 	if err != nil {
 		return err
 	}
@@ -603,9 +653,9 @@ func (c *Conn) authenticate() error {
 	return nil
 }
 
-func (c *Conn) sendData(req *request) error {
-	header := &requestHeader{req.xid, req.opcode}
-	n, err := encodePacket(c.buf[4:], header)
+func (c *Conn) sendData(req *connRequest) error {
+	header := &proto.RequestHeader{req.xid, req.opcode}
+	n, err := proto.EncodePacket(c.buf[4:], header)
 	if err != nil {
 		req.recvChan <- response{-1, err}
 		return nil
@@ -655,7 +705,7 @@ func (c *Conn) sendLoop() error {
 				return err
 			}
 		case <-pingTicker.C:
-			n, err := encodePacket(c.buf[4:], &requestHeader{Xid: -2, Opcode: opPing})
+			n, err := encodePacket(c.buf[4:], &RequestHeader{Xid: -2, Opcode: opPing})
 			if err != nil {
 				panic("zk: opPing should never fail to serialize")
 			}
@@ -696,15 +746,15 @@ func (c *Conn) recvLoop(conn net.Conn) error {
 			return err
 		}
 
-		res := responseHeader{}
-		_, err = decodePacket(buf[:16], &res)
+		res := ResponseHeader{}
+		_, err = DecodePacket(buf[:16], &res)
 		if err != nil {
 			return err
 		}
 
 		if res.Xid == -1 {
 			res := &watcherEvent{}
-			_, err := decodePacket(buf[16:blen], res)
+			_, err := DecodePacket(buf[16:blen], res)
 			if err != nil {
 				return err
 			}
@@ -758,7 +808,7 @@ func (c *Conn) recvLoop(conn net.Conn) error {
 				if res.Err != 0 {
 					err = res.Err.toError()
 				} else {
-					_, err = decodePacket(buf[16:blen], req.recvStruct)
+					_, err = DecodePacket(buf[16:blen], req.recvStruct)
 				}
 				if req.recvFunc != nil {
 					req.recvFunc(req, &res, err)
@@ -786,7 +836,7 @@ func (c *Conn) addWatcher(path string, watchType watchType) <-chan Event {
 	return ch
 }
 
-func (c *Conn) queueRequest(opcode int32, req interface{}, res interface{}, recvFunc func(*request, *responseHeader, error)) <-chan response {
+func (c *Conn) queueRequest(opcode int32, req interface{}, res interface{}, recvFunc func(*request, *ResponseHeader, error)) <-chan response {
 	rq := &request{
 		xid:        c.nextXid(),
 		opcode:     opcode,
@@ -799,7 +849,7 @@ func (c *Conn) queueRequest(opcode int32, req interface{}, res interface{}, recv
 	return rq.recvChan
 }
 
-func (c *Conn) request(opcode int32, req interface{}, res interface{}, recvFunc func(*request, *responseHeader, error)) (int64, error) {
+func (c *Conn) request(opcode int32, req interface{}, res interface{}, recvFunc func(*request, *ResponseHeader, error)) (int64, error) {
 	r := <-c.queueRequest(opcode, req, res, recvFunc)
 	return r.zxid, r.err
 }
@@ -839,7 +889,7 @@ func (c *Conn) Children(path string) ([]string, *Stat, error) {
 func (c *Conn) ChildrenW(path string) ([]string, *Stat, <-chan Event, error) {
 	var ech <-chan Event
 	res := &getChildren2Response{}
-	_, err := c.request(opGetChildren2, &getChildren2Request{Path: path, Watch: true}, res, func(req *request, res *responseHeader, err error) {
+	_, err := c.request(opGetChildren2, &getChildren2Request{Path: path, Watch: true}, res, func(req *request, res *ResponseHeader, err error) {
 		if err == nil {
 			ech = c.addWatcher(path, watchTypeChild)
 		}
@@ -860,7 +910,7 @@ func (c *Conn) Get(path string) ([]byte, *Stat, error) {
 func (c *Conn) GetW(path string) ([]byte, *Stat, <-chan Event, error) {
 	var ech <-chan Event
 	res := &getDataResponse{}
-	_, err := c.request(opGetData, &getDataRequest{Path: path, Watch: true}, res, func(req *request, res *responseHeader, err error) {
+	_, err := c.request(opGetData, &getDataRequest{Path: path, Watch: true}, res, func(req *request, res *ResponseHeader, err error) {
 		if err == nil {
 			ech = c.addWatcher(path, watchTypeData)
 		}
@@ -950,7 +1000,7 @@ func (c *Conn) Exists(path string) (bool, *Stat, error) {
 func (c *Conn) ExistsW(path string) (bool, *Stat, <-chan Event, error) {
 	var ech <-chan Event
 	res := &existsResponse{}
-	_, err := c.request(opExists, &existsRequest{Path: path, Watch: true}, res, func(req *request, res *responseHeader, err error) {
+	_, err := c.request(opExists, &existsRequest{Path: path, Watch: true}, res, func(req *request, res *ResponseHeader, err error) {
 		if err == nil {
 			ech = c.addWatcher(path, watchTypeData)
 		} else if err == ErrNoNode {

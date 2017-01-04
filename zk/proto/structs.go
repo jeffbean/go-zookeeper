@@ -1,32 +1,19 @@
-package zk
+package proto
 
 import (
 	"encoding/binary"
 	"errors"
-	"log"
 	"reflect"
 	"runtime"
-	"time"
 )
 
 var (
-	ErrUnhandledFieldType = errors.New("zk: unhandled field type")
-	ErrPtrExpected        = errors.New("zk: encode/decode expect a non-nil pointer to struct")
-	ErrShortBuffer        = errors.New("zk: buffer too small")
+	errUnhandledFieldType = errors.New("zk: unhandled field type")
+	errPtrExpected        = errors.New("zk: encode/decode expect a non-nil pointer to struct")
+	errShortBuffer        = errors.New("zk: buffer too small")
 )
 
-type defaultLogger struct{}
-
-func (defaultLogger) Printf(format string, a ...interface{}) {
-	log.Printf(format, a...)
-}
-
-type ACL struct {
-	Perms  int32
-	Scheme string
-	ID     string
-}
-
+// Stat is the ZK meta information on a znode
 type Stat struct {
 	Czxid          int64 // The zxid of the change that caused this znode to be created.
 	Mzxid          int64 // The zxid of the change that last modified this znode.
@@ -41,68 +28,23 @@ type Stat struct {
 	Pzxid          int64 // last modified children
 }
 
-// ServerClient is the information for a single Zookeeper client and its session.
-// This is used to parse/extract the output fo the `cons` command.
-type ServerClient struct {
-	Queued        int64
-	Received      int64
-	Sent          int64
-	SessionID     int64
-	Lcxid         int64
-	Lzxid         int64
-	Timeout       int32
-	LastLatency   int32
-	MinLatency    int32
-	AvgLatency    int32
-	MaxLatency    int32
-	Established   time.Time
-	LastResponse  time.Time
-	Addr          string
-	LastOperation string // maybe?
-	Error         error
+// ACL layout of the acl data of a znode
+type ACL struct {
+	Perms  int32
+	Scheme string
+	ID     string
 }
 
-// ServerClients is a struct for the FLWCons() function. It's used to provide
-// the list of Clients.
-//
-// This is needed because FLWCons() takes multiple servers.
-type ServerClients struct {
-	Clients []*ServerClient
-	Error   error
-}
-
-// ServerStats is the information pulled from the Zookeeper `stat` command.
-type ServerStats struct {
-	Sent        int64
-	Received    int64
-	NodeCount   int64
-	MinLatency  int64
-	AvgLatency  int64
-	MaxLatency  int64
-	Connections int64
-	Outstanding int64
-	Epoch       int32
-	Counter     int32
-	BuildTime   time.Time
-	Mode        Mode
-	Version     string
-	Error       error
-}
-
-type requestHeader struct {
+// RequestHeader is the first bytes after the payload length on a client packet
+type RequestHeader struct {
 	Xid    int32
 	Opcode int32
 }
 
-type responseHeader struct {
+// ResponseHeader is the first 12 bits (4,8,4) on the server responce packet
+type ResponseHeader struct {
 	Xid  int32
 	Zxid int64
-	Err  ErrCode
-}
-
-type multiHeader struct {
-	Type int32
-	Done bool
 	Err  ErrCode
 }
 
@@ -118,7 +60,7 @@ type pathRequest struct {
 	Path string
 }
 
-type PathVersionRequest struct {
+type pathVersionRequest struct {
 	Path    string
 	Version int32
 }
@@ -138,11 +80,11 @@ type statResponse struct {
 
 //
 
-type CheckVersionRequest PathVersionRequest
-type closeRequest struct{}
-type closeResponse struct{}
+type CheckVersionRequest pathVersionRequest
+type CloseRequest struct{}
+type CloseResponse struct{}
 
-type connectRequest struct {
+type ConnectRequest struct {
 	ProtocolVersion int32
 	LastZxidSeen    int64
 	TimeOut         int32
@@ -150,7 +92,7 @@ type connectRequest struct {
 	Passwd          []byte
 }
 
-type connectResponse struct {
+type ConnectResponse struct {
 	ProtocolVersion int32
 	TimeOut         int32
 	SessionID       int64
@@ -164,63 +106,63 @@ type CreateRequest struct {
 	Flags int32
 }
 
-type createResponse pathResponse
-type DeleteRequest PathVersionRequest
-type deleteResponse struct{}
+type CreateResponse pathResponse
+type DeleteRequest pathVersionRequest
+type DeleteResponse struct{}
 
 type errorResponse struct {
 	Err int32
 }
 
-type existsRequest pathWatchRequest
-type existsResponse statResponse
-type getAclRequest pathRequest
+type ExistsRequest pathWatchRequest
+type ExistsResponse statResponse
+type GetAclRequest pathRequest
 
-type getAclResponse struct {
+type GetAclResponse struct {
 	Acl  []ACL
 	Stat Stat
 }
 
-type getChildrenRequest pathRequest
+type GetChildrenRequest pathRequest
 
-type getChildrenResponse struct {
+type GetChildrenResponse struct {
 	Children []string
 }
 
-type getChildren2Request pathWatchRequest
+type GetChildren2Request pathWatchRequest
 
-type getChildren2Response struct {
+type GetChildren2Response struct {
 	Children []string
 	Stat     Stat
 }
 
-type getDataRequest pathWatchRequest
+type GetDataRequest pathWatchRequest
 
-type getDataResponse struct {
+type GetDataResponse struct {
 	Data []byte
 	Stat Stat
 }
 
-type getMaxChildrenRequest pathRequest
+type GetMaxChildrenRequest pathRequest
 
-type getMaxChildrenResponse struct {
+type GetMaxChildrenResponse struct {
 	Max int32
 }
 
-type getSaslRequest struct {
+type GetSaslRequest struct {
 	Token []byte
 }
 
-type pingRequest struct{}
-type pingResponse struct{}
+type PingRequest struct{}
+type PingResponse struct{}
 
-type setAclRequest struct {
+type SetAclRequest struct {
 	Path    string
 	Acl     []ACL
 	Version int32
 }
 
-type setAclResponse statResponse
+type SetAclResponse statResponse
 
 type SetDataRequest struct {
 	Path    string
@@ -228,22 +170,22 @@ type SetDataRequest struct {
 	Version int32
 }
 
-type setDataResponse statResponse
+type SetDataResponse statResponse
 
-type setMaxChildren struct {
+type SetMaxChildren struct {
 	Path string
 	Max  int32
 }
 
-type setSaslRequest struct {
+type SetSaslRequest struct {
 	Token string
 }
 
-type setSaslResponse struct {
+type SetSaslResponse struct {
 	Token string
 }
 
-type setWatchesRequest struct {
+type SetWatchesRequest struct {
 	RelativeZxid int64
 	DataWatches  []string
 	ExistWatches []string
@@ -252,32 +194,41 @@ type setWatchesRequest struct {
 
 type setWatchesResponse struct{}
 
-type syncRequest pathRequest
-type syncResponse pathResponse
+type SyncRequest pathRequest
+type SyncResponse pathResponse
 
-type setAuthRequest auth
-type setAuthResponse struct{}
+type SetAuthRequest auth
+type SetAuthResponse struct{}
 
-type multiRequestOp struct {
-	Header multiHeader
+type MultiHeader struct {
+	Type int32
+	Done bool
+	Err  ErrCode
+}
+
+type MultiRequestOp struct {
+	Header MultiHeader
 	Op     interface{}
 }
-type multiRequest struct {
-	Ops        []multiRequestOp
-	DoneHeader multiHeader
+
+type MultiRequest struct {
+	Ops        []MultiRequestOp
+	DoneHeader MultiHeader
 }
-type multiResponseOp struct {
-	Header multiHeader
+
+type MultiResponseOp struct {
+	Header MultiHeader
 	String string
 	Stat   *Stat
 	Err    ErrCode
 }
-type multiResponse struct {
-	Ops        []multiResponseOp
-	DoneHeader multiHeader
+
+type MultiResponse struct {
+	Ops        []MultiResponseOp
+	DoneHeader MultiHeader
 }
 
-func (r *multiRequest) Encode(buf []byte) (int, error) {
+func (r *MultiRequest) Encode(buf []byte) (int, error) {
 	total := 0
 	for _, op := range r.Ops {
 		op.Header.Done = false
@@ -297,12 +248,12 @@ func (r *multiRequest) Encode(buf []byte) (int, error) {
 	return total, nil
 }
 
-func (r *multiRequest) Decode(buf []byte) (int, error) {
-	r.Ops = make([]multiRequestOp, 0)
-	r.DoneHeader = multiHeader{-1, true, -1}
+func (r *MultiRequest) Decode(buf []byte) (int, error) {
+	r.Ops = make([]MultiRequestOp, 0)
+	r.DoneHeader = MultiHeader{-1, true, -1}
 	total := 0
 	for {
-		header := &multiHeader{}
+		header := &MultiHeader{}
 		n, err := decodePacketValue(buf[total:], reflect.ValueOf(header))
 		if err != nil {
 			return total, err
@@ -313,7 +264,7 @@ func (r *multiRequest) Decode(buf []byte) (int, error) {
 			break
 		}
 
-		req := requestStructForOp(header.Type)
+		req := RequestStructForOp(header.Type)
 		if req == nil {
 			return total, ErrAPIError
 		}
@@ -322,19 +273,19 @@ func (r *multiRequest) Decode(buf []byte) (int, error) {
 			return total, err
 		}
 		total += n
-		r.Ops = append(r.Ops, multiRequestOp{*header, req})
+		r.Ops = append(r.Ops, MultiRequestOp{*header, req})
 	}
 	return total, nil
 }
 
-func (r *multiResponse) Decode(buf []byte) (int, error) {
+func (r *MultiResponse) Decode(buf []byte) (int, error) {
 	var multiErr error
 
-	r.Ops = make([]multiResponseOp, 0)
-	r.DoneHeader = multiHeader{-1, true, -1}
+	r.Ops = make([]MultiResponseOp, 0)
+	r.DoneHeader = MultiHeader{-1, true, -1}
 	total := 0
 	for {
-		header := &multiHeader{}
+		header := &MultiHeader{}
 		n, err := decodePacketValue(buf[total:], reflect.ValueOf(header))
 		if err != nil {
 			return total, err
@@ -345,19 +296,19 @@ func (r *multiResponse) Decode(buf []byte) (int, error) {
 			break
 		}
 
-		res := multiResponseOp{Header: *header}
+		res := MultiResponseOp{Header: *header}
 		var w reflect.Value
 		switch header.Type {
 		default:
 			return total, ErrAPIError
-		case opError:
+		case OpError:
 			w = reflect.ValueOf(&res.Err)
-		case opCreate:
+		case OpCreate:
 			w = reflect.ValueOf(&res.String)
-		case opSetData:
+		case OpSetData:
 			res.Stat = new(Stat)
 			w = reflect.ValueOf(res.Stat)
-		case opCheck, opDelete:
+		case OpCheck, OpDelete:
 		}
 		if w.IsValid() {
 			n, err := decodePacketValue(buf[total:], w)
@@ -375,7 +326,7 @@ func (r *multiResponse) Decode(buf []byte) (int, error) {
 	return total, multiErr
 }
 
-type watcherEvent struct {
+type WatcherEvent struct {
 	Type  EventType
 	State State
 	Path  string
@@ -389,11 +340,12 @@ type encoder interface {
 	Encode(buf []byte) (int, error)
 }
 
-func decodePacket(buf []byte, st interface{}) (n int, err error) {
+// DecodePacket decodes the zookeeper application payload for a packet
+func DecodePacket(buf []byte, st interface{}) (n int, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(runtime.Error); ok && e.Error() == "runtime error: slice bounds out of range" {
-				err = ErrShortBuffer
+				err = errShortBuffer
 			} else {
 				panic(r)
 			}
@@ -402,7 +354,7 @@ func decodePacket(buf []byte, st interface{}) (n int, err error) {
 
 	v := reflect.ValueOf(st)
 	if v.Kind() != reflect.Ptr || v.IsNil() {
-		return 0, ErrPtrExpected
+		return 0, errPtrExpected
 	}
 	return decodePacketValue(buf, v)
 }
@@ -421,7 +373,7 @@ func decodePacketValue(buf []byte, v reflect.Value) (int, error) {
 	n := 0
 	switch kind {
 	default:
-		return n, ErrUnhandledFieldType
+		return n, errUnhandledFieldType
 	case reflect.Struct:
 		if de, ok := rv.Interface().(decoder); ok {
 			return de.Decode(buf)
@@ -480,11 +432,11 @@ func decodePacketValue(buf []byte, v reflect.Value) (int, error) {
 	return n, nil
 }
 
-func encodePacket(buf []byte, st interface{}) (n int, err error) {
+func EncodePacket(buf []byte, st interface{}) (n int, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(runtime.Error); ok && e.Error() == "runtime error: slice bounds out of range" {
-				err = ErrShortBuffer
+				err = errShortBuffer
 			} else {
 				panic(r)
 			}
@@ -493,7 +445,7 @@ func encodePacket(buf []byte, st interface{}) (n int, err error) {
 
 	v := reflect.ValueOf(st)
 	if v.Kind() != reflect.Ptr || v.IsNil() {
-		return 0, ErrPtrExpected
+		return 0, errPtrExpected
 	}
 	return encodePacketValue(buf, v)
 }
@@ -507,7 +459,7 @@ func encodePacketValue(buf []byte, v reflect.Value) (int, error) {
 	n := 0
 	switch v.Kind() {
 	default:
-		return n, ErrUnhandledFieldType
+		return n, errUnhandledFieldType
 	case reflect.Struct:
 		if en, ok := rv.Interface().(encoder); ok {
 			return en.Encode(buf)
@@ -570,40 +522,40 @@ func encodePacketValue(buf []byte, v reflect.Value) (int, error) {
 	return n, nil
 }
 
-func requestStructForOp(op int32) interface{} {
+func RequestStructForOp(op int32) interface{} {
 	switch op {
-	case opClose:
-		return &closeRequest{}
-	case opCreate:
+	case OpClose:
+		return &CloseRequest{}
+	case OpCreate:
 		return &CreateRequest{}
-	case opDelete:
+	case OpDelete:
 		return &DeleteRequest{}
-	case opExists:
-		return &existsRequest{}
-	case opGetAcl:
-		return &getAclRequest{}
-	case opGetChildren:
-		return &getChildrenRequest{}
-	case opGetChildren2:
-		return &getChildren2Request{}
-	case opGetData:
-		return &getDataRequest{}
-	case opPing:
-		return &pingRequest{}
-	case opSetAcl:
-		return &setAclRequest{}
-	case opSetData:
+	case OpExists:
+		return &ExistsRequest{}
+	case OpGetAcl:
+		return &GetAclRequest{}
+	case OpGetChildren:
+		return &GetChildrenRequest{}
+	case OpGetChildren2:
+		return &GetChildren2Request{}
+	case OpGetData:
+		return &GetDataRequest{}
+	case OpPing:
+		return &PingRequest{}
+	case OpSetAcl:
+		return &SetAclRequest{}
+	case OpSetData:
 		return &SetDataRequest{}
-	case opSetWatches:
-		return &setWatchesRequest{}
-	case opSync:
-		return &syncRequest{}
-	case opSetAuth:
-		return &setAuthRequest{}
-	case opCheck:
+	case OpSetWatches:
+		return &SetWatchesRequest{}
+	case OpSync:
+		return &SyncRequest{}
+	case OpSetAuth:
+		return &SetAuthRequest{}
+	case OpCheck:
 		return &CheckVersionRequest{}
-	case opMulti:
-		return &multiRequest{}
+	case OpMulti:
+		return &MultiRequest{}
 	}
 	return nil
 }

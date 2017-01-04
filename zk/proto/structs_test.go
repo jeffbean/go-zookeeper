@@ -1,4 +1,4 @@
-package zk
+package proto
 
 import (
 	"reflect"
@@ -7,21 +7,21 @@ import (
 
 func TestEncodeDecodePacket(t *testing.T) {
 	t.Parallel()
-	encodeDecodeTest(t, &requestHeader{-2, 5})
-	encodeDecodeTest(t, &connectResponse{1, 2, 3, nil})
-	encodeDecodeTest(t, &connectResponse{1, 2, 3, []byte{4, 5, 6}})
-	encodeDecodeTest(t, &getAclResponse{[]ACL{{12, "s", "anyone"}}, Stat{}})
-	encodeDecodeTest(t, &getChildrenResponse{[]string{"foo", "bar"}})
+	encodeDecodeTest(t, &RequestHeader{-2, 5})
+	encodeDecodeTest(t, &ConnectResponse{1, 2, 3, nil})
+	encodeDecodeTest(t, &ConnectResponse{1, 2, 3, []byte{4, 5, 6}})
+	encodeDecodeTest(t, &GetAclResponse{[]ACL{{12, "s", "anyone"}}, Stat{}})
+	encodeDecodeTest(t, &GetChildrenResponse{[]string{"foo", "bar"}})
 	encodeDecodeTest(t, &pathWatchRequest{"path", true})
 	encodeDecodeTest(t, &pathWatchRequest{"path", false})
 	encodeDecodeTest(t, &CheckVersionRequest{"/", -1})
-	encodeDecodeTest(t, &multiRequest{Ops: []multiRequestOp{{multiHeader{opCheck, false, -1}, &CheckVersionRequest{"/", -1}}}})
+	encodeDecodeTest(t, &MultiRequest{Ops: []MultiRequestOp{{MultiHeader{opCheck, false, -1}, &CheckVersionRequest{"/", -1}}}})
 }
 
 func TestRequestStructForOp(t *testing.T) {
 	for op, name := range opNames {
-		if op != opNotify && op != opWatcherEvent {
-			if s := requestStructForOp(op); s == nil {
+		if op != OpNotify && op != OpWatcherEvent {
+			if s := RequestStructForOp(op); s == nil {
 				t.Errorf("No struct for op %s", name)
 			}
 		}
@@ -30,14 +30,14 @@ func TestRequestStructForOp(t *testing.T) {
 
 func encodeDecodeTest(t *testing.T, r interface{}) {
 	buf := make([]byte, 1024)
-	n, err := encodePacket(buf, r)
+	n, err := EncodePacket(buf, r)
 	if err != nil {
 		t.Errorf("encodePacket returned non-nil error %+v\n", err)
 		return
 	}
 	t.Logf("%+v %x", r, buf[:n])
 	r2 := reflect.New(reflect.ValueOf(r).Elem().Type()).Interface()
-	n2, err := decodePacket(buf[:n], r2)
+	n2, err := DecodePacket(buf[:n], r2)
 	if err != nil {
 		t.Errorf("decodePacket returned non-nil error %+v\n", err)
 		return
@@ -54,7 +54,7 @@ func encodeDecodeTest(t *testing.T, r interface{}) {
 
 func TestEncodeShortBuffer(t *testing.T) {
 	t.Parallel()
-	_, err := encodePacket([]byte{}, &requestHeader{1, 2})
+	_, err := EncodePacket([]byte{}, &RequestHeader{1, 2})
 	if err != ErrShortBuffer {
 		t.Errorf("encodePacket should return ErrShortBuffer on a short buffer instead of '%+v'", err)
 		return
@@ -63,7 +63,7 @@ func TestEncodeShortBuffer(t *testing.T) {
 
 func TestDecodeShortBuffer(t *testing.T) {
 	t.Parallel()
-	_, err := decodePacket([]byte{}, &responseHeader{})
+	_, err := DecodePacket([]byte{}, &ResponseHeader{})
 	if err != ErrShortBuffer {
 		t.Errorf("decodePacket should return ErrShortBuffer on a short buffer instead of '%+v'", err)
 		return
@@ -72,7 +72,7 @@ func TestDecodeShortBuffer(t *testing.T) {
 
 func BenchmarkEncode(b *testing.B) {
 	buf := make([]byte, 4096)
-	st := &connectRequest{Passwd: []byte("1234567890")}
+	st := &ConnectRequest{Passwd: []byte("1234567890")}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
