@@ -313,7 +313,7 @@ func (r *multiRequest) Decode(buf []byte) (int, error) {
 			break
 		}
 
-		req := requestStructForOp(header.Type)
+		req := RequestStructForOp(header.Type)
 		if req == nil {
 			return total, ErrAPIError
 		}
@@ -389,7 +389,9 @@ type encoder interface {
 	Encode(buf []byte) (int, error)
 }
 
-func decodePacket(buf []byte, st interface{}) (n int, err error) {
+// DecodePacket returns the offset int of a decoded Zookeeper packet.
+// To find the interface to pass in can be done with OpCode in the Header
+func DecodePacket(buf []byte, st interface{}) (n int, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(runtime.Error); ok && e.Error() == "runtime error: slice bounds out of range" {
@@ -570,7 +572,7 @@ func encodePacketValue(buf []byte, v reflect.Value) (int, error) {
 	return n, nil
 }
 
-func requestStructForOp(op int32) interface{} {
+func RequestStructForOp(op int32) interface{} {
 	switch op {
 	case opClose:
 		return &closeRequest{}
@@ -604,6 +606,44 @@ func requestStructForOp(op int32) interface{} {
 		return &CheckVersionRequest{}
 	case opMulti:
 		return &multiRequest{}
+	}
+	return nil
+}
+
+// ResponceStructForOp given an operation code return the responce struct to decode
+func ResponceStructForOp(op int32) interface{} {
+	switch op {
+	case opClose:
+		return &closeResponse{}
+	case opCreate:
+		return &createResponse{}
+	case opDelete:
+		return &deleteResponse{}
+	case opExists:
+		return &existsResponse{}
+	case opGetAcl:
+		return &getAclResponse{}
+	case opGetChildren:
+		return &getChildrenResponse{}
+	case opGetChildren2:
+		return &getChildren2Response{}
+	case opGetData:
+		return &getDataResponse{}
+	case opPing:
+		return &pingResponse{}
+	case opSetAcl:
+		return &setAclResponse{}
+	case opSetData:
+		return &setDataResponse{}
+	case opSetWatches:
+		return &setWatchesResponse{}
+	case opSync:
+		return &syncResponse{}
+	case opSetAuth:
+		return &setAuthResponse{}
+	case opCheck:
+	case opMulti:
+		return &multiResponse{}
 	}
 	return nil
 }

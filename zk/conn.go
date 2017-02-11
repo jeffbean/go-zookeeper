@@ -583,7 +583,7 @@ func (c *Conn) authenticate() error {
 	}
 
 	r := connectResponse{}
-	_, err = decodePacket(buf[:blen], &r)
+	_, err = DecodePacket(buf[:blen], &r)
 	if err != nil {
 		return err
 	}
@@ -697,14 +697,14 @@ func (c *Conn) recvLoop(conn net.Conn) error {
 		}
 
 		res := responseHeader{}
-		_, err = decodePacket(buf[:16], &res)
+		_, err = DecodePacket(buf[:16], &res)
 		if err != nil {
 			return err
 		}
 
 		if res.Xid == -1 {
 			res := &watcherEvent{}
-			_, err := decodePacket(buf[16:blen], res)
+			_, err := DecodePacket(buf[16:blen], res)
 			if err != nil {
 				return err
 			}
@@ -758,7 +758,7 @@ func (c *Conn) recvLoop(conn net.Conn) error {
 				if res.Err != 0 {
 					err = res.Err.toError()
 				} else {
-					_, err = decodePacket(buf[16:blen], req.recvStruct)
+					_, err = DecodePacket(buf[16:blen], req.recvStruct)
 				}
 				if req.recvFunc != nil {
 					req.recvFunc(req, &res, err)

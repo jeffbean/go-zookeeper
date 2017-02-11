@@ -114,9 +114,8 @@ var (
 	ErrNothing                 = errors.New("zk: no server responsees to process")
 	ErrSessionMoved            = errors.New("zk: session moved to another server, so operation is ignored")
 
-	// ErrInvalidCallback         = errors.New("zk: invalid callback specified")
 	errCodeToError = map[ErrCode]error{
-		0:                          nil,
+		errOk:                      nil,
 		errAPIError:                ErrAPIError,
 		errNoNode:                  ErrNoNode,
 		errNoAuth:                  ErrNoAuth,
@@ -125,12 +124,11 @@ var (
 		errNodeExists:              ErrNodeExists,
 		errNotEmpty:                ErrNotEmpty,
 		errSessionExpired:          ErrSessionExpired,
-		// errInvalidCallback:         ErrInvalidCallback,
-		errInvalidAcl:   ErrInvalidACL,
-		errAuthFailed:   ErrAuthFailed,
-		errClosing:      ErrClosing,
-		errNothing:      ErrNothing,
-		errSessionMoved: ErrSessionMoved,
+		errInvalidAcl:              ErrInvalidACL,
+		errAuthFailed:              ErrAuthFailed,
+		errClosing:                 ErrClosing,
+		errNothing:                 ErrNothing,
+		errSessionMoved:            ErrSessionMoved,
 	}
 )
 

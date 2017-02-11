@@ -21,7 +21,7 @@ func TestEncodeDecodePacket(t *testing.T) {
 func TestRequestStructForOp(t *testing.T) {
 	for op, name := range opNames {
 		if op != opNotify && op != opWatcherEvent {
-			if s := requestStructForOp(op); s == nil {
+			if s := RequestStructForOp(op); s == nil {
 				t.Errorf("No struct for op %s", name)
 			}
 		}
@@ -37,9 +37,9 @@ func encodeDecodeTest(t *testing.T, r interface{}) {
 	}
 	t.Logf("%+v %x", r, buf[:n])
 	r2 := reflect.New(reflect.ValueOf(r).Elem().Type()).Interface()
-	n2, err := decodePacket(buf[:n], r2)
+	n2, err := DecodePacket(buf[:n], r2)
 	if err != nil {
-		t.Errorf("decodePacket returned non-nil error %+v\n", err)
+		t.Errorf("DecodePacket returned non-nil error %+v\n", err)
 		return
 	}
 	if n != n2 {
@@ -63,9 +63,9 @@ func TestEncodeShortBuffer(t *testing.T) {
 
 func TestDecodeShortBuffer(t *testing.T) {
 	t.Parallel()
-	_, err := decodePacket([]byte{}, &responseHeader{})
+	_, err := DecodePacket([]byte{}, &responseHeader{})
 	if err != ErrShortBuffer {
-		t.Errorf("decodePacket should return ErrShortBuffer on a short buffer instead of '%+v'", err)
+		t.Errorf("DecodePacket should return ErrShortBuffer on a short buffer instead of '%+v'", err)
 		return
 	}
 }
