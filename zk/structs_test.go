@@ -31,7 +31,7 @@ func TestRequestStructForOp(t *testing.T) {
 func TestResponseStructForOp(t *testing.T) {
 	for op, name := range opNames {
 		if op != opNotify && op != opWatcherEvent {
-			if s := RequestStructForOp(op); s == nil {
+			if s := ResponseStructForOp(op); s == nil {
 				t.Errorf("No struct for op %s", name)
 			}
 		}

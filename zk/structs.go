@@ -139,6 +139,7 @@ type statResponse struct {
 //
 
 type CheckVersionRequest PathVersionRequest
+type checkVersionResponse PathVersionRequest
 type closeRequest struct{}
 type closeResponse struct{}
 
@@ -642,6 +643,7 @@ func ResponseStructForOp(op int32) interface{} {
 	case opSetAuth:
 		return &setAuthResponse{}
 	case opCheck:
+		return &checkVersionResponse{}
 	case opMulti:
 		return &multiResponse{}
 	}
