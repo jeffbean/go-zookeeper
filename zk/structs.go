@@ -610,8 +610,8 @@ func RequestStructForOp(op int32) interface{} {
 	return nil
 }
 
-// ResponceStructForOp given an operation code return the responce struct to decode
-func ResponceStructForOp(op int32) interface{} {
+// ResponseStructForOp given an operation code return the responce struct to decode
+func ResponseStructForOp(op int32) interface{} {
 	switch op {
 	case opClose:
 		return &closeResponse{}
