@@ -28,6 +28,16 @@ func TestRequestStructForOp(t *testing.T) {
 	}
 }
 
+func TestResponseStructForOp(t *testing.T) {
+	for op, name := range opNames {
+		if op != opNotify && op != opWatcherEvent {
+			if s := RequestStructForOp(op); s == nil {
+				t.Errorf("No struct for op %s", name)
+			}
+		}
+	}
+}
+
 func encodeDecodeTest(t *testing.T, r interface{}) {
 	buf := make([]byte, 1024)
 	n, err := encodePacket(buf, r)
