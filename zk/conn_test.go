@@ -24,7 +24,7 @@ func TestRecurringReAuthHang(t *testing.T) {
 
 	zkC, err := StartTestCluster(t, 2, ioutil.Discard, ioutil.Discard)
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	defer zkC.Stop()
 
