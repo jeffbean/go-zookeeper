@@ -1,28 +1,15 @@
 package zk
 
 import (
+	"context"
 	"io/ioutil"
+	"sync"
 	"testing"
 	"time"
 )
 
 func TestRecurringReAuthHang(t *testing.T) {
-	t.Skip("Race condition in test")
-
-	sessionTimeout := 2 * time.Second
-
-	finish := make(chan struct{})
-	defer close(finish)
-	go func() {
-		select {
-		case <-finish:
-			return
-		case <-time.After(5 * sessionTimeout):
-			panic("expected not hang")
-		}
-	}()
-
-	zkC, err := StartTestCluster(t, 2, ioutil.Discard, ioutil.Discard)
+	zkC, err := StartTestCluster(t, 3, ioutil.Discard, ioutil.Discard)
 	if err != nil {
 		panic(err)
 	}
@@ -32,26 +19,39 @@ func TestRecurringReAuthHang(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	for conn.State() != StateHasSession {
-		time.Sleep(50 * time.Millisecond)
-	}
+	defer conn.Close()
 
-	go func() {
-		for range evtC {
-		}
-	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
 
+	waitForSession(ctx, evtC)
 	// Add auth.
 	conn.AddAuth("digest", []byte("test:test"))
 
-	currentServer := conn.Server()
-	conn.debugCloseRecvLoop = true
-	conn.debugReauthDone = make(chan struct{})
-	zkC.StopServer(currentServer)
-	// wait connect to new zookeeper.
-	for conn.Server() == currentServer && conn.State() != StateHasSession {
-		time.Sleep(100 * time.Millisecond)
+	var reauthCloseOnce sync.Once
+	reauthSig := make(chan struct{}, 1)
+	conn.resendZkAuthFn = func(ctx context.Context, c *Conn) error {
+		// in current implimentation the reauth might be called more than once based on various conditions
+		reauthCloseOnce.Do(func() { close(reauthSig) })
+		return resendZkAuth(ctx, c)
 	}
 
-	<-conn.debugReauthDone
+	conn.debugCloseRecvLoop = true
+	currentServer := conn.Server()
+	zkC.StopServer(currentServer)
+	// wait connect to new zookeeper.
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	waitForSession(ctx, evtC)
+
+	select {
+	case _, ok := <-reauthSig:
+		if !ok {
+			return // we closed the channel as expected
+		}
+		t.Fatal("reauth testing channel should have been closed")
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
 }
