@@ -4,7 +4,7 @@ go:
   - 1.9
   - tip
 
-go_import_path: github.com/samuel/go-zookeeper
+go_import_path: github.com/go-zookeeper/zk
 
 jdk:
   - oraclejdk9
