@@ -126,7 +126,7 @@ func StartTestCluster(t *testing.T, size int, stdout, stderr io.Writer) (*TestCl
 }
 
 func (tc *TestCluster) Connect(idx int) (*Conn, <-chan Event, error) {
-	return Connect([]string{fmt.Sprintf("127.0.0.1:%d", tc.Servers[idx].Port)}, time.Second*15)
+	return Connect([]string{fmt.Sprintf("127.0.0.1:%d", tc.Servers[idx].Port)}, time.Second*5)
 }
 
 func (tc *TestCluster) ConnectAll() (*Conn, <-chan Event, error) {

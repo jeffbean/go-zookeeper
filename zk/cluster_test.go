@@ -22,31 +22,25 @@ func TestBasicCluster(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ts.Stop()
-	zk1, evCh, err := ts.Connect(0)
+	zk, evCh, err := ts.ConnectAll()
 	if err != nil {
-		t.Fatalf("Connect returned error: %+v", err)
+		t.Fatalf("Connect returned error: %v", err)
 	}
-	defer zk1.Close()
-	zk2, _, err := ts.Connect(1)
-	if err != nil {
-		t.Fatalf("Connect returned error: %+v", err)
-	}
-	defer zk2.Close()
+	defer zk.Close()
 
 	sl := NewStateLogger(evCh)
+
 	hasSessionEvent1 := sl.NewWatcher(sessionStateMatcher(StateHasSession)).Wait(8 * time.Second)
 	if hasSessionEvent1 == nil {
 		t.Fatalf("Failed to connect and get session")
 	}
 
-	time.Sleep(time.Second * 5)
-
-	if _, err := zk1.Create("/gozk-test", []byte("foo-cluster"), 0, WorldACL(PermAll)); err != nil {
-		t.Fatalf("Create failed on node 1: %+v", err)
+	if _, err := zk.Create("/gozk-test", []byte("foo-cluster"), 0, WorldACL(PermAll)); err != nil {
+		t.Fatalf("Create failed node: %v", err)
 	}
 
-	if by, _, err := zk2.Get("/gozk-test"); err != nil {
-		t.Fatalf("Get failed on node 2: %+v", err)
+	if by, _, err := zk.Get("/gozk-test"); err != nil {
+		t.Fatalf("Get failed on node 2: %v", err)
 	} else if string(by) != "foo-cluster" {
 		t.Fatal("Wrong data for node 2")
 	}
