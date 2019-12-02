@@ -15,7 +15,6 @@ func (lw logWriter) Write(b []byte) (int, error) {
 	lw.t.Logf("%s%s", lw.p, string(b))
 	return len(b), nil
 }
-
 func TestBasicCluster(t *testing.T) {
 	ts, err := StartTestCluster(t, 3, nil, logWriter{t: t, p: "[ZKERR] "})
 	if err != nil {
