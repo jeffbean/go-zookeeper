@@ -607,7 +607,7 @@ func TestChildWatch(t *testing.T) {
 		if ev.Path != "/" {
 			t.Fatalf("Child watcher wrong path %s instead of %s", ev.Path, "/")
 		}
-	case _ = <-time.After(time.Second * 2):
+	case <-time.After(time.Second * 2):
 		t.Fatal("Child watcher timed out")
 	}
 
@@ -634,7 +634,7 @@ func TestChildWatch(t *testing.T) {
 		if ev.Path != "/gozk-test" {
 			t.Fatalf("Child watcher wrong path %s instead of %s", ev.Path, "/")
 		}
-	case _ = <-time.After(time.Second * 2):
+	case <-time.After(time.Second * 2):
 		t.Fatal("Child watcher timed out")
 	}
 }

@@ -22,7 +22,7 @@ func TestBasicCluster(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ts.Stop()
-	zk1, _, err := ts.Connect(0)
+	zk1, evCh, err := ts.Connect(0)
 	if err != nil {
 		t.Fatalf("Connect returned error: %+v", err)
 	}
@@ -32,6 +32,12 @@ func TestBasicCluster(t *testing.T) {
 		t.Fatalf("Connect returned error: %+v", err)
 	}
 	defer zk2.Close()
+
+	sl := NewStateLogger(evCh)
+	hasSessionEvent1 := sl.NewWatcher(sessionStateMatcher(StateHasSession)).Wait(8 * time.Second)
+	if hasSessionEvent1 == nil {
+		t.Fatalf("Failed to connect and get session")
+	}
 
 	time.Sleep(time.Second * 5)
 
@@ -150,7 +156,7 @@ func TestNoQuorum(t *testing.T) {
 	DefaultLogger.Printf("    Retrying no luck...")
 	var firstDisconnect *Event
 	begin := time.Now()
-	for time.Now().Sub(begin) < 6*time.Second {
+	for time.Since(begin) < 6*time.Second {
 		disconnectedEvent := sl.NewWatcher(sessionStateMatcher(StateDisconnected)).Wait(4 * time.Second)
 		if disconnectedEvent == nil {
 			t.Fatalf("Disconnected event expected")
